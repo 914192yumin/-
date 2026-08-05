@@ -38,7 +38,7 @@ def save_preferences(prefs):
 all_prefs = load_preferences()
 
 # ==========================================
-# 自動讀取雲端檔案 (115年醫師病房值班.xlsx)
+# 自動讀取雲端後台檔案
 # ==========================================
 file_path = "115年醫師病房值班.xlsx"
 df = None
@@ -52,7 +52,9 @@ if os.path.exists(file_path):
         st.error(f"❌ 檔案讀取錯誤，請確認檔案是否有「醫師總表」分頁：{e}")
         st.stop()
 else:
-    st.warning(f"⚠️ 系統準備就緒。請確認雲端空間內有上傳「{file_path}」。")
+    # 這是專門給系統管理員看的提示，檔案放好後醫師就不會看到這個了
+    st.error(f"⚠️ [系統管理員請注意]：後台找不到名為「{file_path}」的 Excel 檔案。")
+    st.write("請前往 Hugging Face 的 **Files** 頁籤，點擊 **+ Add file** -> **Upload files**，將您的 Excel 檔案上傳至與 `app.py` 相同的地方。上傳完成後，此錯誤訊息將自動消失，醫師即可直接選取姓名。")
     st.stop()
 
 # 建立 MVPN 與配額字典
@@ -79,7 +81,7 @@ for i in range(30):
 if 'submit_success' not in st.session_state:
     st.session_state.submit_success = False
 
-# 初始化選單的 session_state 以防報錯
+# 初始化選單的 session_state
 if 'doc_selector' not in st.session_state:
     st.session_state.doc_selector = "請選擇..."
 if 'days_selector' not in st.session_state:
@@ -104,8 +106,6 @@ def submit_form():
 if st.session_state.submit_success:
     st.success("✅ 意願已成功送出！畫面已為您重新歸零。")
     st.session_state.submit_success = False
-
-st.subheader("登記值班意願")
 
 first_line_docs = df[df['班別'] == '一線']['醫師姓名'].tolist()
 second_line_docs = df[df['班別'] == '二線']['醫師姓名'].tolist()
@@ -146,7 +146,6 @@ with st.sidebar:
         st.success("✅ 後台已解鎖！")
         
         if st.button("產生最終班表", type="primary"):
-            # 初始化排班表：每天區分一線與二線
             schedule = {date: {"一線": None, "二線": None} for date in days_info.keys()}
             assigned_counts = {doc: {"平日": 0, "假日": 0} for doc in df['醫師姓名']}
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
@@ -167,7 +166,6 @@ with st.sidebar:
                 if info["一線"] is None:
                     day_type = days_info[d]["類型"]
                     full_day_str = days_info[d]["完整"]
-                    # 找出有意願且未超過該日類型配額的一線醫師
                     interested = [doc for doc in first_line_docs if doc in all_prefs and full_day_str in all_prefs[doc]]
                     valid_candidates = [doc for doc in interested if assigned_counts[doc][day_type] < quota_dict[doc][day_type]]
                     
@@ -176,7 +174,6 @@ with st.sidebar:
                         schedule[d]["一線"] = chosen
                         assigned_counts[chosen][day_type] += 1
                     elif interested:
-                        # 如果大家都滿了但還是有人選，強制隨機選一個
                         chosen = random.choice(interested)
                         schedule[d]["一線"] = chosen
                         assigned_counts[chosen][day_type] += 1
@@ -212,7 +209,6 @@ with st.sidebar:
                 doc1 = info["一線"] if info["一線"] else ""
                 doc2 = info["二線"] if info["二線"] else ""
                 
-                # 組合 MVPN 字串 (如：李毓珊678910)
                 mvpn1 = f"{doc1}{mvpn_dict.get(doc1, '')}" if doc1 else ""
                 mvpn2 = f"{doc2}{mvpn_dict.get(doc2, '')}" if doc2 else ""
                 
