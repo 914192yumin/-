@@ -31,9 +31,9 @@ if 'doc_database' not in st.session_state:
     st.session_state.doc_database = None
 
 # ==========================================
-# 步驟一：讀取「115年醫師病房值班_2.xlsx」的「醫師總表」
+# 步驟一：讀取「115年醫師病房值班.xlsx」的「醫師總表」
 # ==========================================
-uploaded_file = st.file_uploader("請上傳醫師總表 (115年醫師病房值班_2.xlsx)", type=['xlsx', 'xls'])
+uploaded_file = st.file_uploader("請上傳醫師總表 (115年醫師病房值班.xlsx)", type=['xlsx', 'xls'])
 
 if uploaded_file is not None:
     try:
