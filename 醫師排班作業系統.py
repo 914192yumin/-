@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import io
 
 # ==========================================
-# 網頁基礎與視覺設定 (暖奶油色背景、乾淨文字排版)
+# 網頁基礎與視覺設定
 # ==========================================
 st.set_page_config(page_title="醫療部病房排班系統", layout="centered")
 st.markdown("""
@@ -19,7 +19,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("醫療部病房值班排班系統")
-
 st.info("📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，請於期限內完成登記。**")
 
 # ==========================================
@@ -31,20 +30,36 @@ if 'doc_database' not in st.session_state:
     st.session_state.doc_database = None
 
 # ==========================================
-# 步驟一：讀取「醫師總表」
+# 步驟一：讀取「醫師總表」並加入防呆機制
 # ==========================================
-# 這裡已經幫你把顯示文字改成最新的檔名了！
 uploaded_file = st.file_uploader("請上傳醫師總表 (115年醫師病房值班.xlsx)", type=['xlsx', 'xls'])
 
 if uploaded_file is not None:
     try:
         # 指定讀取名為「醫師總表」的工作表
         df = pd.read_excel(uploaded_file, sheet_name='醫師總表')
+        
+        # [防呆機制 1]：自動清理欄位名稱前後的空白字元
+        df.columns = df.columns.astype(str).str.strip()
+        
+        # [防呆機制 2]：檢查必備欄位是否存在
+        required_cols = ['醫師姓名', '班別']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        
+        if missing_cols:
+            st.error(f"❌ 讀取失敗：在您的 Excel 中找不到這幾個必要的欄位：【{', '.join(missing_cols)}】")
+            st.warning(f"👉 系統目前抓取到的欄位有：【{', '.join(df.columns.tolist())}】。請檢查 Excel 檔案第一列的標題是否有打錯字！")
+            st.stop() # 停止執行，避免下方出現 KeyError 當機
+            
+        # 將空值補上預設值，避免後續運算錯誤
         df.fillna({'平日應值班數': 0, '假日應值班數': 0, '固定值班日期': '', 'MVPN': ''}, inplace=True)
         st.session_state.doc_database = df
         st.success("✅ 「醫師總表」讀取成功！請透過下方頁籤進行操作。")
+        
+    except ValueError:
+        st.error("❌ 讀取失敗：請確認您的 Excel 檔案中，確實有一個工作表（Sheet）的名稱叫做「醫師總表」。")
     except Exception as e:
-        st.error(f"讀取失敗：請確認您的 Excel 檔案中，最下方的工作表(Sheet)名稱是否為「醫師總表」。詳細錯誤：{e}")
+        st.error(f"❌ 發生未知的錯誤，詳細原因：{e}")
 
 # ==========================================
 # 建立前台與後台頁籤
@@ -60,7 +75,6 @@ if st.session_state.doc_database is not None:
 
     tab1, tab2 = st.tabs(["👤 前台：醫師意願登記", "⚙️ 後台：自動排班處理"])
     
-    # 產生下個月日期與平假日標籤 (以 9 月為例)
     days_info = {}
     days_display = []
     start_date = datetime(2026, 9, 1)
@@ -93,7 +107,6 @@ if st.session_state.doc_database is not None:
             if fixed_dates_str.strip():
                 st.warning(f"📌 提醒：您的固定值班日期為 👉 **{fixed_dates_str}**")
             
-            # 動態計算目前每個日期有多少人選
             date_counts = {d: 0 for d in days_display}
             for doc, prefs in st.session_state.preferences.items():
                 for p in prefs:
@@ -121,7 +134,6 @@ if st.session_state.doc_database is not None:
             schedule = {date: None for date in days_info.keys()}
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
             
-            # 優先級 0：填入固定值班
             for idx, row in df.iterrows():
                 doc_name = row['醫師姓名']
                 fixed_str = str(row.get('固定值班日期', ''))
@@ -131,19 +143,16 @@ if st.session_state.doc_database is not None:
                         if d in schedule:
                             schedule[d] = doc_name
             
-            # 階段一：一線醫師填空
             for d, doc in schedule.items():
                 if doc is None:
                     interested_first = [doc for doc in first_line_docs if doc in st.session_state.preferences and days_info[d]["完整"] in st.session_state.preferences[doc]]
                     if interested_first: schedule[d] = random.choice(interested_first)
             
-            # 階段二：特定二線優先
             for d, doc in schedule.items():
                 if doc is None:
                     interested_special = [doc for doc in special_second_line if doc in st.session_state.preferences and days_info[d]["完整"] in st.session_state.preferences[doc]]
                     if interested_special: schedule[d] = random.choice(interested_special)
             
-            # 階段三：一般二線填補 (盡量平均分配)
             for d, doc in schedule.items():
                 if doc is None:
                     if regular_second_line: 
@@ -151,7 +160,6 @@ if st.session_state.doc_database is not None:
                     else: 
                         schedule[d] = "待補"
 
-            # 整理最終表格，加上 MVPN
             final_schedule_list = []
             for d, doc in schedule.items():
                 display_name = doc
@@ -167,7 +175,6 @@ if st.session_state.doc_database is not None:
             df_result = pd.DataFrame(final_schedule_list)
             st.dataframe(df_result, use_container_width=True)
             
-            # 將結果轉換為真實的 Excel (.xlsx) 檔案
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='最終班表')
