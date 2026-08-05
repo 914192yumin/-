@@ -3,6 +3,8 @@ import pandas as pd
 import random
 from datetime import datetime, timedelta
 import io
+import os
+import json
 
 # ==========================================
 # 網頁基礎與視覺設定
@@ -12,9 +14,6 @@ st.markdown("""
 <style>
     .stApp { background-color: #FDFBF7; }
     h1, h2, h3, p, div, span, label { color: #333333; font-family: sans-serif; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: transparent; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #EFE9D9; border-bottom: 2px solid #555555; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -22,118 +21,137 @@ st.title("醫療部病房值班排班系統")
 st.info("📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，請於期限內完成登記。**")
 
 # ==========================================
-# 資料儲存與初始化
+# 核心機制：多人共用資料庫 (JSON)
 # ==========================================
-if 'preferences' not in st.session_state:
-    st.session_state.preferences = {}
-if 'doc_database' not in st.session_state:
-    st.session_state.doc_database = None
+PREFS_FILE = 'preferences.json'
+
+def load_preferences():
+    if os.path.exists(PREFS_FILE):
+        with open(PREFS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_preferences(prefs):
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(prefs, f, ensure_ascii=False)
+
+# 讀取目前所有醫師已送出的意願
+all_prefs = load_preferences()
 
 # ==========================================
-# 步驟一：讀取「醫師總表」並加入防呆機制
+# 步驟一：雲端後台自動讀取「醫師總表」
 # ==========================================
-uploaded_file = st.file_uploader("請上傳醫師總表 (115年醫師病房值班.xlsx)", type=['xlsx', 'xls'])
+file_path = "115年醫師病房值班.xlsx"
+df = None
 
-if uploaded_file is not None:
+if os.path.exists(file_path):
     try:
-        # 指定讀取名為「醫師總表」的工作表
-        df = pd.read_excel(uploaded_file, sheet_name='醫師總表')
-        
-        # [防呆機制 1]：自動清理欄位名稱前後的空白字元
+        df = pd.read_excel(file_path, sheet_name='醫師總表')
         df.columns = df.columns.astype(str).str.strip()
-        
-        # [防呆機制 2]：檢查必備欄位是否存在
-        required_cols = ['醫師姓名', '班別']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        
-        if missing_cols:
-            st.error(f"❌ 讀取失敗：在您的 Excel 中找不到這幾個必要的欄位：【{', '.join(missing_cols)}】")
-            st.warning(f"👉 系統目前抓取到的欄位有：【{', '.join(df.columns.tolist())}】。請檢查 Excel 檔案第一列的標題是否有打錯字！")
-            st.stop() # 停止執行，避免下方出現 KeyError 當機
-            
-        # 將空值補上預設值，避免後續運算錯誤
         df.fillna({'平日應值班數': 0, '假日應值班數': 0, '固定值班日期': '', 'MVPN': ''}, inplace=True)
-        st.session_state.doc_database = df
-        st.success("✅ 「醫師總表」讀取成功！請透過下方頁籤進行操作。")
-        
-    except ValueError:
-        st.error("❌ 讀取失敗：請確認您的 Excel 檔案中，確實有一個工作表（Sheet）的名稱叫做「醫師總表」。")
     except Exception as e:
-        st.error(f"❌ 發生未知的錯誤，詳細原因：{e}")
+        st.error(f"❌ 檔案讀取錯誤：{e}")
+        st.stop()
+else:
+    st.warning(f"⚠️ 請將名為「{file_path}」的檔案上傳至雲端空間。")
+    st.stop()
+
+# 建立醫師 MVPN 對應字典
+mvpn_dict = {row['醫師姓名']: str(row.get('MVPN', '')).replace('.0', '') for _, row in df.iterrows()}
+
+# 產生日期與星期 (W1~W7) 標籤
+days_info = {}
+days_display = []
+start_date = datetime(2026, 9, 1)
+for i in range(30):
+    current_date = start_date + timedelta(days=i)
+    simple_date = f"{current_date.month}/{current_date.day}" 
+    weekday_str = f"W{current_date.weekday() + 1}"
+    day_type = "假日" if current_date.weekday() >= 5 else "平日"
+    display_str = f"{simple_date} ({weekday_str})"
+    days_info[simple_date] = {"類型": day_type, "完整": display_str}
+    days_display.append(display_str)
 
 # ==========================================
-# 建立前台與後台頁籤
+# 表單送出與自動歸零邏輯 (Callback)
 # ==========================================
-if st.session_state.doc_database is not None:
-    df = st.session_state.doc_database
+if 'submit_success' not in st.session_state:
+    st.session_state.submit_success = False
+
+def submit_form():
+    doc = st.session_state.doc_selector
+    days = st.session_state.days_selector
+    if doc != "請選擇...":
+        # 1. 將資料存入實體 JSON 檔案，確保大家都能看到
+        current_prefs = load_preferences()
+        current_prefs[doc] = days
+        save_preferences(current_prefs)
+        
+        # 2. 將畫面狀態強制歸零，並觸發成功訊息
+        st.session_state.submit_success = True
+        st.session_state.doc_selector = "請選擇..."
+        st.session_state.days_selector = []
+
+# ==========================================
+# 前台：醫師意願登記介面
+# ==========================================
+if st.session_state.submit_success:
+    st.success("✅ 意願已成功送出！畫面已為您重新歸零。")
+    st.session_state.submit_success = False
+
+st.subheader("登記值班意願")
+
+first_line_docs = df[df['班別'] == '一線']['醫師姓名'].tolist()
+second_line_docs = df[df['班別'] == '二線']['醫師姓名'].tolist()
+special_second_line = [doc for doc in ["林中華", "林尚華"] if doc in second_line_docs]
+priority_group = first_line_docs + special_second_line
+
+# 計算目前每個日期被選擇的總次數
+date_counts = {d: 0 for d in days_display}
+for doc, prefs in all_prefs.items():
+    for p in prefs:
+        if p in date_counts:
+            date_counts[p] += 1
+
+selected_doctor = st.selectbox(
+    "請選擇您的姓名：", 
+    ["請選擇..."] + priority_group, 
+    key="doc_selector" # 綁定 Key 供歸零使用
+)
+
+if selected_doctor != "請選擇...":
+    doc_info = df[df['醫師姓名'] == selected_doctor].iloc[0]
+    fixed_dates_str = str(doc_info.get('固定值班日期', ''))
+    if fixed_dates_str.strip():
+        st.warning(f"📌 提醒：您的固定值班日期為 👉 **{fixed_dates_str}**")
+        
+    preferred_days = st.multiselect(
+        "請勾選您【希望值班】的日期：", 
+        options=days_display,
+        format_func=lambda x: f"{x} ｜ 目前有 {date_counts.get(x, 0)} 人選擇",
+        key="days_selector" # 綁定 Key 供歸零使用
+    )
     
-    # 建立醫師 MVPN 對應字典
-    mvpn_dict = {}
-    for _, row in df.iterrows():
-        mvpn_val = str(row.get('MVPN', '')).replace('.0', '')
-        mvpn_dict[row['醫師姓名']] = mvpn_val
+    st.button("送出意願", on_click=submit_form)
 
-    tab1, tab2 = st.tabs(["👤 前台：醫師意願登記", "⚙️ 後台：自動排班處理"])
-    
-    days_info = {}
-    days_display = []
-    start_date = datetime(2026, 9, 1)
-    for i in range(30):
-        current_date = start_date + timedelta(days=i)
-        simple_date = f"{current_date.month}/{current_date.day}" 
-        is_weekend = current_date.weekday() >= 5
-        day_type = "假日" if is_weekend else "平日"
-        
-        display_str = f"{simple_date} ({day_type})"
-        days_info[simple_date] = {"類型": day_type, "完整": display_str}
-        days_display.append(display_str)
+# ==========================================
+# 隱藏後台：密碼解鎖區 (位於左側邊欄)
+# ==========================================
+with st.sidebar:
+    st.write("🔧 **管理員專區**")
+    st.write("此區僅供排班人員使用。")
+    # 設定解鎖密碼
+    admin_password = st.text_input("請輸入密碼解鎖排班後台：", type="password")
 
-    # ------------------------------------------
-    # 頁籤 1：前台 (給醫師填寫)
-    # ------------------------------------------
-    with tab1:
-        st.subheader("登記值班意願")
-        
-        first_line_docs = df[df['班別'] == '一線']['醫師姓名'].tolist()
-        second_line_docs = df[df['班別'] == '二線']['醫師姓名'].tolist()
-        special_second_line = [doc for doc in ["林中華", "林尚華"] if doc in second_line_docs]
-        priority_group = first_line_docs + special_second_line
-        
-        selected_doctor = st.selectbox("請選擇您的姓名：", ["請選擇..."] + priority_group)
-        
-        if selected_doctor != "請選擇...":
-            doc_info = df[df['醫師姓名'] == selected_doctor].iloc[0]
-            fixed_dates_str = str(doc_info.get('固定值班日期', ''))
-            if fixed_dates_str.strip():
-                st.warning(f"📌 提醒：您的固定值班日期為 👉 **{fixed_dates_str}**")
-            
-            date_counts = {d: 0 for d in days_display}
-            for doc, prefs in st.session_state.preferences.items():
-                for p in prefs:
-                    if p in date_counts:
-                        date_counts[p] += 1
-            
-            preferred_days = st.multiselect(
-                "請勾選您【希望值班】的日期：", 
-                options=days_display,
-                format_func=lambda x: f"{x} ｜ 目前有 {date_counts.get(x, 0)} 人選擇",
-                default=st.session_state.preferences.get(selected_doctor, [])
-            )
-            
-            if st.button("送出意願", key="submit_btn"):
-                st.session_state.preferences[selected_doctor] = preferred_days
-                st.success("意願已成功送出！")
-
-    # ------------------------------------------
-    # 頁籤 2：後台 (自動排班與下載 Excel)
-    # ------------------------------------------
-    with tab2:
-        st.subheader("執行自動排班")
+    if admin_password == "1234":
+        st.success("✅ 後台已解鎖！")
+        st.write("---")
         
         if st.button("產生最終班表", type="primary"):
             schedule = {date: None for date in days_info.keys()}
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
             
+            # 優先級 0：固定值班
             for idx, row in df.iterrows():
                 doc_name = row['醫師姓名']
                 fixed_str = str(row.get('固定值班日期', ''))
@@ -143,16 +161,19 @@ if st.session_state.doc_database is not None:
                         if d in schedule:
                             schedule[d] = doc_name
             
+            # 階段一：一線
             for d, doc in schedule.items():
                 if doc is None:
-                    interested_first = [doc for doc in first_line_docs if doc in st.session_state.preferences and days_info[d]["完整"] in st.session_state.preferences[doc]]
+                    interested_first = [doc for doc in first_line_docs if doc in all_prefs and days_info[d]["完整"] in all_prefs[doc]]
                     if interested_first: schedule[d] = random.choice(interested_first)
             
+            # 階段二：特定二線
             for d, doc in schedule.items():
                 if doc is None:
-                    interested_special = [doc for doc in special_second_line if doc in st.session_state.preferences and days_info[d]["完整"] in st.session_state.preferences[doc]]
+                    interested_special = [doc for doc in special_second_line if doc in all_prefs and days_info[d]["完整"] in all_prefs[doc]]
                     if interested_special: schedule[d] = random.choice(interested_special)
             
+            # 階段三：一般二線
             for d, doc in schedule.items():
                 if doc is None:
                     if regular_second_line: 
@@ -160,6 +181,7 @@ if st.session_state.doc_database is not None:
                     else: 
                         schedule[d] = "待補"
 
+            # 整理並輸出 Excel
             final_schedule_list = []
             for d, doc in schedule.items():
                 display_name = doc
@@ -168,6 +190,7 @@ if st.session_state.doc_database is not None:
                 
                 final_schedule_list.append({
                     "日期": d,
+                    "星期": days_info[d]["完整"].split(" ")[1].replace("(", "").replace(")", ""),
                     "平假日": days_info[d]["類型"],
                     "值班醫師": display_name
                 })
