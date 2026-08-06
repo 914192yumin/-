@@ -11,30 +11,28 @@ import time
 # ==========================================
 # 網頁基礎與視覺設定 (溫暖奶油白、馬卡龍綠、隱藏英文圖示)
 # ==========================================
-# 保持側邊欄展開，因為我們將隱藏收合它的按鈕
 st.set_page_config(page_title="醫療部病房排班系統", layout="centered", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-    /* 1. 設定主背景為溫暖奶油白 (偏白、不偏黃) */
+    /* 1. 設定主背景為溫暖奶油白 */
     .stApp { background-color: #FAF9F6 !important; }
     
     /* 2. 設定左側邊欄背景為柔和的奶油色 */
     [data-testid="stSidebar"] { background-color: #F5F2EA !important; }
     
-    /* 3. 強制所有文字呈現深灰/黑色，維持直白閱讀體驗 */
+    /* 3. 強制所有文字呈現深灰/黑色 */
     h1, h2, h3, h4, h5, h6, p, div, span, label, li { 
         color: #2C2C2C !important; 
         font-family: "Microsoft JhengHei", sans-serif !important; 
     }
     
-    /* 4. 多選選單標籤 (改為馬卡龍淺綠色) */
-    span[data-baseweb="tag"] {
+    /* 4. 多選選單標籤精準覆蓋 (改為馬卡龍淺綠色) */
+    div[data-baseweb="select"] span[data-baseweb="tag"] {
         background-color: #D4EFDF !important; 
         color: #333333 !important;
         border: none !important;
     }
-    /* 確保標籤內的「x」刪除按鈕也是深色 */
-    span[data-baseweb="tag"] svg {
+    div[data-baseweb="select"] span[data-baseweb="tag"] svg {
         fill: #333333 !important;
     }
     
@@ -50,12 +48,12 @@ st.markdown("""
         color: #333333 !important;
     }
     
-    /* 6. 徹底隱藏頂部控制列與 keyboard_double 殘影 */
+    /* 6. 徹底隱藏頂部控制列與殘影 */
     header[data-testid="stHeader"] { display: none !important; }
     [data-testid="collapsedControl"] { display: none !important; }
     [data-testid="stSidebarCollapseButton"] { display: none !important; }
     
-    /* 7. 徹底隱藏密碼框的 visibility 眼睛圖示殘影 */
+    /* 7. 徹底隱藏密碼框的眼睛圖示殘影 */
     [data-testid="stTextInput"] button { display: none !important; }
     button[title="Show password text"] { display: none !important; }
     
@@ -65,6 +63,14 @@ st.markdown("""
     .stTabs [aria-selected="true"] { background-color: transparent; border-bottom: 3px solid #333333; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
+
+# ==========================================
+# 頂部 Logo 顯示區塊
+# ==========================================
+# 系統會尋找雲端資料夾中的 yumin_logo.png 檔案
+logo_path = "yumin_logo.png"
+if os.path.exists(logo_path):
+    st.image(logo_path, width=250) # 寬度可依需求調整
 
 # ==========================================
 # 系統時間與動態月份計算
