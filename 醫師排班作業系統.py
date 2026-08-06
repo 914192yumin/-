@@ -9,27 +9,27 @@ import json
 import time
 
 # ==========================================
-# 網頁基礎與視覺設定 (暖奶油色、馬卡龍色系選單與按鈕)
+# 網頁基礎與視覺設定 (溫暖奶油白、馬卡龍綠、隱藏英文圖示)
 # ==========================================
+# 保持側邊欄展開，因為我們將隱藏收合它的按鈕
 st.set_page_config(page_title="醫療部病房排班系統", layout="centered", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-    /* 1. 設定全網頁暖奶油色背景 */
-    .stApp { background-color: #FFFDD0; }
+    /* 1. 設定主背景為溫暖奶油白 (偏白、不偏黃) */
+    .stApp { background-color: #FAF9F6 !important; }
     
-    /* 2. 強制所有文字呈現深灰/黑色，維持直白的閱讀體驗 */
+    /* 2. 設定左側邊欄背景為柔和的奶油色 */
+    [data-testid="stSidebar"] { background-color: #F5F2EA !important; }
+    
+    /* 3. 強制所有文字呈現深灰/黑色，維持直白閱讀體驗 */
     h1, h2, h3, h4, h5, h6, p, div, span, label, li { 
         color: #2C2C2C !important; 
         font-family: "Microsoft JhengHei", sans-serif !important; 
     }
     
-    /* =========================================
-       ✨ 新增：自訂柔和淡色系 UI 元素
-       ========================================= */
-       
-    /* 3. 多選選單標籤 (改為馬卡龍綠) */
+    /* 4. 多選選單標籤 (改為馬卡龍淺綠色) */
     span[data-baseweb="tag"] {
-        background-color: #B5EAD7 !important;
+        background-color: #D4EFDF !important; 
         color: #333333 !important;
         border: none !important;
     }
@@ -38,30 +38,28 @@ st.markdown("""
         fill: #333333 !important;
     }
     
-    /* 4. 主要按鈕 (改為柔和的燕麥/淺沙色，取代預設紅色) */
+    /* 5. 主要按鈕 (維持柔和的燕麥/淺沙色) */
     button[kind="primary"] {
         background-color: #E2D9C8 !important;
         border: 1px solid #D1C7B4 !important;
         color: #333333 !important;
     }
-    /* 主要按鈕滑鼠懸停效果 (稍微加深) */
     button[kind="primary"]:hover {
         background-color: #D1C7B4 !important;
         border: 1px solid #C0B5A1 !important;
         color: #333333 !important;
     }
     
-    /* ========================================= */
-    
-    /* 5. 隱藏左上角側邊欄收合按鈕與密碼顯示按鈕 */
+    /* 6. 徹底隱藏頂部控制列與 keyboard_double 殘影 */
+    header[data-testid="stHeader"] { display: none !important; }
     [data-testid="collapsedControl"] { display: none !important; }
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+    
+    /* 7. 徹底隱藏密碼框的 visibility 眼睛圖示殘影 */
+    [data-testid="stTextInput"] button { display: none !important; }
     button[title="Show password text"] { display: none !important; }
     
-    /* 6. 隱藏右上角預設選單與頂部空白 */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* 7. 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
+    /* 8. 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 2px solid #D3D3D3; }
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; border: none; }
     .stTabs [aria-selected="true"] { background-color: transparent; border-bottom: 3px solid #333333; font-weight: bold; }
@@ -178,7 +176,6 @@ with tab1:
             default=existing_prefs
         )
         
-        # 使用了 kind="primary" 的按鈕，現在會套用我們自訂的燕麥色
         if st.button("儲存意願", type="primary"):
             current_prefs = load_preferences()
             current_prefs[selected_doctor] = preferred_days
