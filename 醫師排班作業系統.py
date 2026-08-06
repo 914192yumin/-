@@ -280,7 +280,9 @@ with tab3:
         st.subheader("🗓️ 自動排班處理")
         
         if st.button("執行排班並產生 Excel", type="primary"):
-            schedule = {date: {"一線": None, "二線": None} for date in days_info.keys()}
+            # 建立單一空缺的 schedule 字典：每天只有 1 個醫師的位子
+            schedule = {date: None for date in days_info.keys()}
+            
             rem_quota = {doc: {"平日": int(df.loc[df['醫師姓名']==doc, '平日應值班數'].values[0]),
                                "假日": int(df.loc[df['醫師姓名']==doc, '假日應值班數'].values[0])} 
                          for doc in all_doctors if doc in df['醫師姓名'].values}
@@ -288,54 +290,55 @@ with tab3:
             special_second_line = [doc for doc in ["林中華", "林尚華"] if doc in second_line_docs]
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
 
-            # 【階段一】固定星期優先扣除
-            for d, info in schedule.items():
+            # 優先名單：一線 + 特殊二線
+            priority_docs = first_line_docs + special_second_line
+
+            # 【階段一】優先處理：固定星期
+            for d in schedule.keys():
                 zh_weekday = days_info[d]["中文星期"] 
                 day_type = days_info[d]["類型"]
-                for _, row in df.iterrows():
-                    doc = row['醫師姓名']
-                    line = str(row['班別']).strip()
-                    if doc not in first_line_docs and doc not in second_line_docs: continue
+                for doc in priority_docs:
+                    if doc not in df['醫師姓名'].values: continue
+                    fixed_days = str(df.loc[df['醫師姓名']==doc, '固定值班星期'].values[0]).strip()
                     
-                    fixed_days = str(row.get('固定值班星期', '')).strip()
-                    if zh_weekday in fixed_days and rem_quota[doc][day_type] > 0 and schedule[d][line] is None:
-                        schedule[d][line] = doc
+                    if zh_weekday in fixed_days and rem_quota[doc][day_type] > 0 and schedule[d] is None:
+                        schedule[d] = doc
                         rem_quota[doc][day_type] -= 1
                         assigned_counts[doc][day_type] += 1
 
-            # 【階段二】依據意願分配
-            for d, info in schedule.items():
-                day_type = days_info[d]["類型"]
-                full_day_str = days_info[d]["完整"]
-                if schedule[d]["一線"] is None:
-                    interested_first = [doc for doc in first_line_docs if doc in all_prefs and full_day_str in all_prefs[doc] and rem_quota[doc][day_type] > 0]
-                    if interested_first:
-                        chosen = random.choice(interested_first)
-                        schedule[d]["一線"] = chosen
+            # 【階段二】依據意願分配優先名單
+            for d in schedule.keys():
+                if schedule[d] is None:
+                    day_type = days_info[d]["類型"]
+                    full_day_str = days_info[d]["完整"]
+                    interested = [doc for doc in priority_docs if doc in all_prefs and full_day_str in all_prefs[doc] and rem_quota[doc][day_type] > 0]
+                    if interested:
+                        chosen = random.choice(interested)
+                        schedule[d] = chosen
                         rem_quota[chosen][day_type] -= 1
                         assigned_counts[chosen][day_type] += 1
 
-            # 【階段三】強制補滿一線配額
-            for doc in first_line_docs:
+            # 【階段三】強制補滿優先名單配額
+            for doc in priority_docs:
                 for day_type in ["平日", "假日"]:
                     while rem_quota[doc][day_type] > 0:
-                        available_days = [d for d in schedule.keys() if schedule[d]["一線"] is None and days_info[d]["類型"] == day_type]
+                        available_days = [d for d in schedule.keys() if schedule[d] is None and days_info[d]["類型"] == day_type]
                         if available_days:
                             chosen_date = random.choice(available_days)
-                            schedule[chosen_date]["一線"] = doc
+                            schedule[chosen_date] = doc
                             rem_quota[doc][day_type] -= 1
                             assigned_counts[doc][day_type] += 1
                         else:
                             break
 
-            # 【階段四】二線均分空缺
-            for d, info in schedule.items():
-                if schedule[d]["二線"] is None:
+            # 【階段四】剩餘空白日期，均分給一般二線醫師
+            for d in schedule.keys():
+                if schedule[d] is None:
                     day_type = days_info[d]["類型"]
                     zh_weekday = days_info[d]["中文星期"]
                     
                     available_second = []
-                    for doc in second_line_docs:
+                    for doc in regular_second_line:
                         rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
                         if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
                             continue
@@ -345,20 +348,22 @@ with tab3:
                         min_shifts = min([assigned_counts[doc][day_type] for doc in available_second])
                         candidates = [doc for doc in available_second if assigned_counts[doc][day_type] == min_shifts]
                         chosen = random.choice(candidates)
-                        schedule[d]["二線"] = chosen
+                        schedule[d] = chosen
                         assigned_counts[chosen][day_type] += 1
 
-            # 整理輸出格式
+            # 整理輸出格式：根據被選中醫師的「班別」，動態放入對應欄位，另一個欄位留白
             final_schedule_list = []
-            for d, info in schedule.items():
-                doc1 = info["一線"] if info["一線"] else ""
-                doc2 = info["二線"] if info["二線"] else ""
+            for d, doc in schedule.items():
+                doc1, doc2, mvpn1, mvpn2 = "", "", "", ""
                 
-                mvpn1 = f"{doc1}{mvpn_dict.get(doc1, '')}" if doc1 else ""
-                mvpn2 = f"{doc2}{mvpn_dict.get(doc2, '')}" if doc2 else ""
-                
-                if doc and not doc1 and not doc2:
-                    doc1, mvpn1 = doc, f"{doc}{mvpn_dict.get(doc, '')}"
+                if doc:
+                    doc_type = line_type_dict.get(doc, "")
+                    if doc_type == "一線":
+                        doc1 = doc
+                        mvpn1 = f"{doc}{mvpn_dict.get(doc, '')}"
+                    elif doc_type == "二線":
+                        doc2 = doc
+                        mvpn2 = f"{doc}{mvpn_dict.get(doc, '')}"
                 
                 final_schedule_list.append({
                     "日期": d,
@@ -370,7 +375,7 @@ with tab3:
                 })
                 
             df_result = pd.DataFrame(final_schedule_list)
-            st.success("✨ 班表運算完成！")
+            st.success("✨ 班表運算完成！每天僅安排一位醫師。")
             st.dataframe(df_result, use_container_width=True)
             
             output = io.BytesIO()
