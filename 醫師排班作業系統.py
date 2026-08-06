@@ -9,9 +9,9 @@ import json
 import time
 
 # ==========================================
-# 網頁基礎與視覺設定 (溫暖奶油白、馬卡龍綠、隱藏英文圖示)
+# 網頁基礎與視覺設定 (溫暖奶油白、徹底馬卡龍綠)
 # ==========================================
-st.set_page_config(page_title="醫師病房值班預約班表系統", layout="centered", initial_sidebar_state="expanded")
+st.set_page_config(page_title="醫療部病房排班系統", layout="centered", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
     /* 設定主背景為溫暖奶油白 */
@@ -26,15 +26,26 @@ st.markdown("""
         font-family: "Microsoft JhengHei", sans-serif !important; 
     }
     
-    /* 多選選單標籤精準覆蓋 (改為馬卡龍淺綠色) */
+    /* ====== 徹底消除紅色，改為馬卡龍綠 ====== */
+    /* 1. 多選標籤背景 */
     div[data-baseweb="select"] span[data-baseweb="tag"] {
         background-color: #D4EFDF !important; 
         color: #333333 !important;
         border: none !important;
     }
+    div[data-baseweb="select"] span[data-baseweb="tag"] * {
+        background-color: transparent !important;
+        color: #333333 !important;
+    }
     div[data-baseweb="select"] span[data-baseweb="tag"] svg {
         fill: #333333 !important;
     }
+    /* 2. 點擊選單時的邊框發光效果 (去除預設紅色) */
+    div[data-baseweb="select"] > div:focus-within {
+        border-color: #D4EFDF !important;
+        box-shadow: 0 0 0 2px #D4EFDF !important;
+    }
+    /* ======================================== */
     
     /* 主要按鈕 (維持柔和的燕麥/淺沙色) */
     button[kind="primary"] {
@@ -57,7 +68,7 @@ st.markdown("""
     [data-testid="stTextInput"] button { display: none !important; }
     button[title="Show password text"] { display: none !important; }
     
-    /* 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
+    /* 頁籤設計：去除花俏按鈕感 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 2px solid #D3D3D3; }
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; border: none; }
     .stTabs [aria-selected="true"] { background-color: transparent; border-bottom: 3px solid #333333; font-weight: bold; }
@@ -69,6 +80,9 @@ st.markdown("""
 # ==========================================
 today = datetime.today()
 
+# 判斷是否在開放填寫期間 (1號 ~ 10號)
+is_open_for_submission = today.day <= 10
+
 if today.month == 12:
     target_year = today.year + 1
     target_month = 1
@@ -78,42 +92,50 @@ else:
 
 _, num_days = calendar.monthrange(target_year, target_month)
 
+# 建立當月份的專屬 Key (例如：2026_9)，用來達成換月自動 Reset
+month_key = f"{target_year}_{target_month}"
+
 # ==========================================
 # 頂部 Logo 與標題顯示區塊 (並排設計)
 # ==========================================
 logo_path = "yumin_logo.png"
-
-# 使用 columns 建立並排的隱形網格，比例為 1:6
 col1, col2 = st.columns([1, 6])
-
 with col1:
-    # 如果有上傳 logo，則顯示在左邊的小格子裡，並縮小寬度
     if os.path.exists(logo_path):
         st.image(logo_path, width=80)
-
 with col2:
-    # 右邊的大格子放置系統大標題
     st.title("醫療部病房值班排班系統")
 
 # ==========================================
-# 公告區塊
+# 公告區塊 (依據是否開放動態改變提示)
 # ==========================================
-st.info(f"📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，目前開放登記【{target_year} 年 {target_month} 月】之班表。**")
+if is_open_for_submission:
+    st.info(f"📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，目前開放登記【{target_year} 年 {target_month} 月】之班表。**")
+else:
+    st.error(f"🔒 **公告：目前非開放填寫時間 (開放時間為每月 1 日至 10 日)。【{target_year} 年 {target_month} 月】的表單已關閉。**")
 
 # ==========================================
-# 核心機制：多人共用資料庫 (JSON)
+# 核心機制：多人共用資料庫 (依月份獨立存檔)
 # ==========================================
 PREFS_FILE = 'preferences.json'
 
 def load_preferences():
     if os.path.exists(PREFS_FILE):
         with open(PREFS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            all_data = json.load(f)
+            # 只有回傳「這個月」的資料，達成自動 Reset
+            return all_data.get(month_key, {})
     return {}
 
 def save_preferences(prefs):
+    all_data = {}
+    if os.path.exists(PREFS_FILE):
+        with open(PREFS_FILE, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+    # 更新這個月的資料
+    all_data[month_key] = prefs
     with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(prefs, f, ensure_ascii=False)
+        json.dump(all_data, f, ensure_ascii=False)
 
 all_prefs = load_preferences()
 
@@ -186,23 +208,27 @@ with tab1:
             
         existing_prefs = all_prefs.get(selected_doctor, [])
         
+        # 即使超過 10 號，醫師還是可以「查看」自己選了什麼
         preferred_days = st.multiselect(
             "請勾選或修改您【希望值班】的日期：", 
             options=days_display,
             format_func=lambda x: f"{x} ｜ 目前有 {date_counts.get(x, 0)} 人選擇",
-            default=existing_prefs
+            default=existing_prefs,
+            disabled=not is_open_for_submission # 超過 10 號鎖定選單
         )
         
-        if st.button("儲存意願", type="primary"):
-            current_prefs = load_preferences()
-            current_prefs[selected_doctor] = preferred_days
-            save_preferences(current_prefs)
-            st.success("✅ 意願已成功儲存！系統已紀錄您最新的選擇。")
-            time.sleep(1)
-            st.rerun()
+        # 只有在 1~10 號期間才顯示儲存按鈕
+        if is_open_for_submission:
+            if st.button("儲存意願", type="primary"):
+                current_prefs = load_preferences()
+                current_prefs[selected_doctor] = preferred_days
+                save_preferences(current_prefs)
+                st.success("✅ 意願已成功儲存！系統已紀錄您最新的選擇。")
+                time.sleep(1)
+                st.rerun()
 
 with tab2:
-    st.subheader("尚未登記意願的醫師名單")
+    st.subheader(f"尚未登記 {target_month} 月份意願的醫師名單")
     unsubmitted_docs = [doc for doc in priority_group if doc not in all_prefs or not all_prefs[doc]]
     
     if unsubmitted_docs:
