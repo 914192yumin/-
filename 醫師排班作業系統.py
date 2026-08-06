@@ -242,7 +242,7 @@ with tab3:
     st.write("🔧 **解鎖排班管理系統**")
     admin_password = st.text_input("請輸入管理員密碼：", type="password")
 
-    if admin_password == "1234":
+    if admin_password == "914192":
         st.success("✅ 後台已解鎖！")
         st.markdown("---")
         
