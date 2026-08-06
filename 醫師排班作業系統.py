@@ -195,11 +195,6 @@ with tab1:
     selected_doctor = st.selectbox("請選擇您的姓名：", ["請選擇..."] + priority_group, on_change=reset_unlock_state)
 
     if selected_doctor != "請選擇...":
-        doc_info = df[df['醫師姓名'] == selected_doctor].iloc[0]
-        fixed_days_str = str(doc_info.get('固定值班星期', ''))
-        if fixed_days_str.strip():
-            st.warning(f"📌 提醒：您的固定值班星期為 👉 **{fixed_days_str}**")
-            
         existing_prefs = all_prefs.get(selected_doctor, [])
         is_locked = (selected_doctor in all_prefs) and (not st.session_state.unlock_edit)
         
@@ -251,7 +246,6 @@ with tab3:
         st.success("✅ 後台已解鎖！")
         st.markdown("---")
         
-        # 1. 產生並顯示「醫師意願總表」
         st.subheader("📋 醫師意願清單總覽")
         prefs_summary_data = []
         for doc in priority_group:
@@ -362,6 +356,9 @@ with tab3:
                 
                 mvpn1 = f"{doc1}{mvpn_dict.get(doc1, '')}" if doc1 else ""
                 mvpn2 = f"{doc2}{mvpn_dict.get(doc2, '')}" if doc2 else ""
+                
+                if doc and not doc1 and not doc2:
+                    doc1, mvpn1 = doc, f"{doc}{mvpn_dict.get(doc, '')}"
                 
                 final_schedule_list.append({
                     "日期": d,
