@@ -8,16 +8,42 @@ import json
 import time
 
 # ==========================================
-# 網頁基礎與視覺設定 (暖奶油色背景、文字為主)
+# 網頁基礎與視覺設定 (純文字、暖奶油色權威感排版)
 # ==========================================
 st.set_page_config(page_title="醫療部病房排班系統", layout="centered")
 st.markdown("""
 <style>
-    .stApp { background-color: #FDFBF7; }
-    h1, h2, h3, p, div, span, label { color: #333333; font-family: sans-serif; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: transparent; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #EFE9D9; border-bottom: 2px solid #555555; font-weight: bold; }
+    /* 設定全網頁暖奶油色背景 */
+    .stApp { 
+        background-color: #FFFDD0; 
+    }
+    
+    /* 強制所有文字呈現深灰/黑色，維持直白的閱讀體驗 */
+    h1, h2, h3, h4, h5, h6, p, div, span, label, li { 
+        color: #2C2C2C !important; 
+        font-family: "Microsoft JhengHei", sans-serif !important; 
+    }
+    
+    /* 移除多餘的陰影與裝飾性框線，保持俐落 */
+    div[data-testid="stMetricValue"] {
+        font-weight: bold;
+    }
+    
+    /* 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
+    .stTabs [data-baseweb="tab-list"] { 
+        gap: 24px; 
+        border-bottom: 2px solid #D3D3D3;
+    }
+    .stTabs [data-baseweb="tab"] { 
+        height: 50px; 
+        background-color: transparent; 
+        border: none;
+    }
+    .stTabs [aria-selected="true"] { 
+        background-color: transparent; 
+        border-bottom: 3px solid #333333; 
+        font-weight: bold; 
+    }
 </style>
 """, unsafe_allow_html=True)
 
