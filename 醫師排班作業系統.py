@@ -11,22 +11,22 @@ import time
 # ==========================================
 # 網頁基礎與視覺設定 (溫暖奶油白、馬卡龍綠、隱藏英文圖示)
 # ==========================================
-st.set_page_config(page_title="醫療部病房排班系統", layout="centered", initial_sidebar_state="expanded")
+st.set_page_config(page_title="醫師病房值班預約班表系統", layout="centered", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-    /* 1. 設定主背景為溫暖奶油白 */
+    /* 設定主背景為溫暖奶油白 */
     .stApp { background-color: #FAF9F6 !important; }
     
-    /* 2. 設定左側邊欄背景為柔和的奶油色 */
+    /* 設定左側邊欄背景為柔和的奶油色 */
     [data-testid="stSidebar"] { background-color: #F5F2EA !important; }
     
-    /* 3. 強制所有文字呈現深灰/黑色 */
+    /* 強制所有文字呈現深灰/黑色 */
     h1, h2, h3, h4, h5, h6, p, div, span, label, li { 
         color: #2C2C2C !important; 
         font-family: "Microsoft JhengHei", sans-serif !important; 
     }
     
-    /* 4. 多選選單標籤精準覆蓋 (改為馬卡龍淺綠色) */
+    /* 多選選單標籤精準覆蓋 (改為馬卡龍淺綠色) */
     div[data-baseweb="select"] span[data-baseweb="tag"] {
         background-color: #D4EFDF !important; 
         color: #333333 !important;
@@ -36,7 +36,7 @@ st.markdown("""
         fill: #333333 !important;
     }
     
-    /* 5. 主要按鈕 (維持柔和的燕麥/淺沙色) */
+    /* 主要按鈕 (維持柔和的燕麥/淺沙色) */
     button[kind="primary"] {
         background-color: #E2D9C8 !important;
         border: 1px solid #D1C7B4 !important;
@@ -48,29 +48,21 @@ st.markdown("""
         color: #333333 !important;
     }
     
-    /* 6. 徹底隱藏頂部控制列與殘影 */
+    /* 徹底隱藏頂部控制列與殘影 */
     header[data-testid="stHeader"] { display: none !important; }
     [data-testid="collapsedControl"] { display: none !important; }
     [data-testid="stSidebarCollapseButton"] { display: none !important; }
     
-    /* 7. 徹底隱藏密碼框的眼睛圖示殘影 */
+    /* 徹底隱藏密碼框的眼睛圖示殘影 */
     [data-testid="stTextInput"] button { display: none !important; }
     button[title="Show password text"] { display: none !important; }
     
-    /* 8. 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
+    /* 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 2px solid #D3D3D3; }
     .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; border: none; }
     .stTabs [aria-selected="true"] { background-color: transparent; border-bottom: 3px solid #333333; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
-
-# ==========================================
-# 頂部 Logo 顯示區塊
-# ==========================================
-# 系統會尋找雲端資料夾中的 yumin_logo.png 檔案
-logo_path = "yumin_logo.png"
-if os.path.exists(logo_path):
-    st.image(logo_path, width=250) # 寬度可依需求調整
 
 # ==========================================
 # 系統時間與動態月份計算
@@ -86,7 +78,26 @@ else:
 
 _, num_days = calendar.monthrange(target_year, target_month)
 
-st.title("醫療部病房值班排班系統")
+# ==========================================
+# 頂部 Logo 與標題顯示區塊 (並排設計)
+# ==========================================
+logo_path = "yumin_logo.png"
+
+# 使用 columns 建立並排的隱形網格，比例為 1:6
+col1, col2 = st.columns([1, 6])
+
+with col1:
+    # 如果有上傳 logo，則顯示在左邊的小格子裡，並縮小寬度
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=80)
+
+with col2:
+    # 右邊的大格子放置系統大標題
+    st.title("醫療部病房值班排班系統")
+
+# ==========================================
+# 公告區塊
+# ==========================================
 st.info(f"📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，目前開放登記【{target_year} 年 {target_month} 月】之班表。**")
 
 # ==========================================
