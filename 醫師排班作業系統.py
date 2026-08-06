@@ -2,72 +2,104 @@ import streamlit as st
 import pandas as pd
 import random
 from datetime import datetime, timedelta
+import calendar
 import io
 import os
 import json
 import time
 
 # ==========================================
-# 網頁基礎與視覺設定 (純文字、暖奶油色權威感排版)
+# 網頁基礎與視覺設定 (暖奶油色、馬卡龍色系選單與按鈕)
 # ==========================================
-st.set_page_config(page_title="醫療部病房排班系統", layout="centered")
+st.set_page_config(page_title="醫療部病房排班系統", layout="centered", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-    /* 設定全網頁暖奶油色背景 */
-    .stApp { 
-        background-color: #FFFDD0; 
-    }
+    /* 1. 設定全網頁暖奶油色背景 */
+    .stApp { background-color: #FFFDD0; }
     
-    /* 強制所有文字呈現深灰/黑色，維持直白的閱讀體驗 */
+    /* 2. 強制所有文字呈現深灰/黑色，維持直白的閱讀體驗 */
     h1, h2, h3, h4, h5, h6, p, div, span, label, li { 
         color: #2C2C2C !important; 
         font-family: "Microsoft JhengHei", sans-serif !important; 
     }
     
-    /* 移除多餘的陰影與裝飾性框線，保持俐落 */
-    div[data-testid="stMetricValue"] {
-        font-weight: bold;
+    /* =========================================
+       ✨ 新增：自訂柔和淡色系 UI 元素
+       ========================================= */
+       
+    /* 3. 多選選單標籤 (改為馬卡龍綠) */
+    span[data-baseweb="tag"] {
+        background-color: #B5EAD7 !important;
+        color: #333333 !important;
+        border: none !important;
+    }
+    /* 確保標籤內的「x」刪除按鈕也是深色 */
+    span[data-baseweb="tag"] svg {
+        fill: #333333 !important;
     }
     
-    /* 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
-    .stTabs [data-baseweb="tab-list"] { 
-        gap: 24px; 
-        border-bottom: 2px solid #D3D3D3;
+    /* 4. 主要按鈕 (改為柔和的燕麥/淺沙色，取代預設紅色) */
+    button[kind="primary"] {
+        background-color: #E2D9C8 !important;
+        border: 1px solid #D1C7B4 !important;
+        color: #333333 !important;
     }
-    .stTabs [data-baseweb="tab"] { 
-        height: 50px; 
-        background-color: transparent; 
-        border: none;
+    /* 主要按鈕滑鼠懸停效果 (稍微加深) */
+    button[kind="primary"]:hover {
+        background-color: #D1C7B4 !important;
+        border: 1px solid #C0B5A1 !important;
+        color: #333333 !important;
     }
-    .stTabs [aria-selected="true"] { 
-        background-color: transparent; 
-        border-bottom: 3px solid #333333; 
-        font-weight: bold; 
-    }
+    
+    /* ========================================= */
+    
+    /* 5. 隱藏左上角側邊欄收合按鈕與密碼顯示按鈕 */
+    [data-testid="collapsedControl"] { display: none !important; }
+    button[title="Show password text"] { display: none !important; }
+    
+    /* 6. 隱藏右上角預設選單與頂部空白 */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* 7. 頁籤設計：去除花俏按鈕感，改為嚴謹的下底線文字風格 */
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 2px solid #D3D3D3; }
+    .stTabs [data-baseweb="tab"] { height: 50px; background-color: transparent; border: none; }
+    .stTabs [aria-selected="true"] { background-color: transparent; border-bottom: 3px solid #333333; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
+# ==========================================
+# 系統時間與動態月份計算
+# ==========================================
+today = datetime.today()
+
+if today.month == 12:
+    target_year = today.year + 1
+    target_month = 1
+else:
+    target_year = today.year
+    target_month = today.month + 1
+
+_, num_days = calendar.monthrange(target_year, target_month)
+
 st.title("醫療部病房值班排班系統")
-st.info("📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，請於期限內完成登記。**")
+st.info(f"📢 **公告：一線醫師開放填寫日期為每月 1 日至 10 日，目前開放登記【{target_year} 年 {target_month} 月】之班表。**")
 
 # ==========================================
-# 核心機制：多人共用資料庫 (JSON 即時存檔與覆蓋)
+# 核心機制：多人共用資料庫 (JSON)
 # ==========================================
 PREFS_FILE = 'preferences.json'
 
 def load_preferences():
-    # 讀取目前存檔的資料
     if os.path.exists(PREFS_FILE):
         with open(PREFS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
 def save_preferences(prefs):
-    # 將最新資料寫入檔案保存
     with open(PREFS_FILE, 'w', encoding='utf-8') as f:
         json.dump(prefs, f, ensure_ascii=False)
 
-# 每次網頁刷新時，都會抓取最新存檔的資料
 all_prefs = load_preferences()
 
 # ==========================================
@@ -94,11 +126,12 @@ mvpn_dict = {row['醫師姓名']: str(row.get('MVPN', '')).replace('.0', '') for
 quota_dict = {row['醫師姓名']: {'平日': int(row['平日應值班數']), '假日': int(row['假日應值班數'])} for _, row in df.iterrows()}
 line_type_dict = {row['醫師姓名']: str(row['班別']).strip() for _, row in df.iterrows()}
 
-# 產生日期與星期 (W1~W7) 標籤
+# 動態產生日期與星期 (W1~W7) 標籤
 days_info = {}
 days_display = []
-start_date = datetime(2026, 9, 1)
-for i in range(30):
+start_date = datetime(target_year, target_month, 1)
+
+for i in range(num_days):
     current_date = start_date + timedelta(days=i)
     simple_date = f"{current_date.month}/{current_date.day}" 
     weekday_str = f"W{current_date.weekday() + 1}"
@@ -121,7 +154,7 @@ for doc, prefs in all_prefs.items():
 tab1, tab2 = st.tabs(["📝 登記與修改意願", "📊 查詢未登記名單"])
 
 with tab1:
-    st.subheader("登記或修改您的值班意願")
+    st.subheader(f"登記或修改 {target_month} 月份值班意願")
     
     first_line_docs = df[df['班別'] == '一線']['醫師姓名'].tolist()
     second_line_docs = df[df['班別'] == '二線']['醫師姓名'].tolist()
@@ -136,7 +169,6 @@ with tab1:
         if fixed_dates_str.strip():
             st.warning(f"📌 提醒：您的固定值班日期為 👉 **{fixed_dates_str}**")
             
-        # 讀取該醫師目前的意願，作為選單的預設值 (顯示最新狀態)
         existing_prefs = all_prefs.get(selected_doctor, [])
         
         preferred_days = st.multiselect(
@@ -146,15 +178,14 @@ with tab1:
             default=existing_prefs
         )
         
+        # 使用了 kind="primary" 的按鈕，現在會套用我們自訂的燕麥色
         if st.button("儲存意願", type="primary"):
-            # 讀取最新資料 -> 覆蓋該醫師的選擇 -> 重新存檔
             current_prefs = load_preferences()
-            current_prefs[selected_doctor] = preferred_days 
+            current_prefs[selected_doctor] = preferred_days
             save_preferences(current_prefs)
-            
             st.success("✅ 意願已成功儲存！系統已紀錄您最新的選擇。")
-            time.sleep(1) # 暫停 1 秒讓醫師看到成功訊息
-            st.rerun()    # 重新整理畫面，確保資料同步
+            time.sleep(1)
+            st.rerun()
 
 with tab2:
     st.subheader("尚未登記意願的醫師名單")
@@ -178,12 +209,10 @@ with st.sidebar:
         st.success("✅ 後台已解鎖！")
         
         if st.button("產生最終班表", type="primary"):
-            # 每天只有【一位】醫師值班的邏輯
             schedule = {date: None for date in days_info.keys()}
             assigned_counts = {doc: {"平日": 0, "假日": 0} for doc in all_doctors}
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
             
-            # 【優先級 0】固定值班日期
             for _, row in df.iterrows():
                 doc_name = row['醫師姓名']
                 fixed_str = str(row.get('固定值班日期', ''))
@@ -193,7 +222,6 @@ with st.sidebar:
                             schedule[d] = doc_name
                             assigned_counts[doc_name][days_info[d]["類型"]] += 1
             
-            # 【階段一】智慧排班：一線醫師
             for d in schedule.keys():
                 if schedule[d] is None:
                     day_type = days_info[d]["類型"]
@@ -210,7 +238,6 @@ with st.sidebar:
                         schedule[d] = chosen
                         assigned_counts[chosen][day_type] += 1
 
-            # 【階段二】特定二線優先
             for d in schedule.keys():
                 if schedule[d] is None:
                     day_type = days_info[d]["類型"]
@@ -223,7 +250,6 @@ with st.sidebar:
                         schedule[d] = chosen
                         assigned_counts[chosen][day_type] += 1
 
-            # 【階段三】一般二線填補空缺
             for d in schedule.keys():
                 if schedule[d] is None:
                     day_type = days_info[d]["類型"]
@@ -235,7 +261,6 @@ with st.sidebar:
                     else:
                         schedule[d] = random.choice(regular_second_line) if regular_second_line else ""
 
-            # 整理輸出，確保一線與二線不會同時出現在同一天
             final_schedule_list = []
             for d, doc in schedule.items():
                 doc_type = line_type_dict.get(doc, "")
@@ -263,12 +288,12 @@ with st.sidebar:
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_result.to_excel(writer, index=False, sheet_name='最終班表')
+                df_result.to_excel(writer, index=False, sheet_name=f'{target_month}月最終班表')
             excel_data = output.getvalue()
             
             st.download_button(
                 label="📥 下載最終班表 (Excel 格式)",
                 data=excel_data,
-                file_name='115年醫師病房值班_排班結果.xlsx',
+                file_name=f'醫療部_{target_year}年{target_month}月_排班結果.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
