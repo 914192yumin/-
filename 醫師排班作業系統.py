@@ -7,13 +7,6 @@ import io
 import os
 import json
 import time
-from huggingface_hub import HfApi
-
-# ==========================================
-# ⚠️ 雲端永久保存設定區 
-# ==========================================
-# 請將下方引號內的文字，替換成你真實的 Repo ID (例如: "914192yumin/scheduling_yumin")
-REPO_ID = "你的帳號/你的專案名稱" 
 
 # ==========================================
 # 網頁基礎與視覺設定 
@@ -80,7 +73,7 @@ month_key = f"{target_year}_{target_month}"
 config_key = f"config_{month_key}"
 
 # ==========================================
-# 核心機制：自動備份至 Hugging Face 雲端
+# 核心機制：基礎本機存檔 (JSON)
 # ==========================================
 PREFS_FILE = 'preferences.json'
 
@@ -97,35 +90,17 @@ is_manually_locked = month_config.get("manual_lock", False)
 
 is_open_for_submission = (today.day <= 10) and not is_manually_locked
 
-def save_preferences_to_cloud(data):
-    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
-    
-    HF_TOKEN = os.environ.get("HF_TOKEN")
-    if HF_TOKEN and "你的帳號" not in REPO_ID:
-        try:
-            api = HfApi()
-            api.upload_file(
-                path_or_fileobj=PREFS_FILE,
-                path_in_repo=PREFS_FILE,
-                repo_id=REPO_ID,
-                repo_type="space",
-                token=HF_TOKEN,
-                commit_message=f"系統自動備份 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-        except Exception as e:
-            st.toast(f"⚠️ 雲端備份發生異常，請檢查 HF_TOKEN 設定。")
-            print(f"Upload Error: {e}")
-
 def save_preferences(prefs):
     data = load_all_data()
     data[month_key] = prefs
-    save_preferences_to_cloud(data)
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
 
 def set_manual_lock(status):
     data = load_all_data()
     data[config_key] = {"manual_lock": status}
-    save_preferences_to_cloud(data)
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
 
 # ==========================================
 # 頂部 Logo 與標題
@@ -261,7 +236,7 @@ with tab1:
                     all_prefs[selected_doctor] = preferred_days
                     save_preferences(all_prefs)
                     st.session_state.unlock_edit = False
-                    st.success("✅ 意願已成功儲存！系統已自動鎖定並備份至雲端。")
+                    st.success("✅ 意願已成功儲存！系統已自動鎖定您的表單。")
                     time.sleep(1)
                     st.rerun()
 
@@ -317,7 +292,7 @@ with tab3:
             if st.button(f"儲存 {admin_selected_doc} 的調整", type="primary"):
                 all_prefs[admin_selected_doc] = admin_new_prefs
                 save_preferences(all_prefs)
-                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願並備份至雲端！")
+                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願！")
                 time.sleep(1)
                 st.rerun()
 
@@ -345,8 +320,9 @@ with tab3:
                 data = load_all_data()
                 if month_key in data and len(data[month_key]) > 0:
                     data[month_key] = {}
-                    save_preferences_to_cloud(data)
-                    st.success("✅ 當月意願紀錄已全數歸零並更新至雲端！")
+                    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False)
+                    st.success("✅ 當月意願紀錄已全數歸零！")
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -366,7 +342,6 @@ with tab3:
                          for doc in all_doctors if doc in df['醫師姓名'].values}
             assigned_counts = {doc: {"平日": 0, "假日": 0} for doc in all_doctors}
             
-            # 區分優先名單(一線+特殊二線) 與 一般二線名單(其餘4位)
             special_second_line = [doc for doc in ["林中華", "林尚華"] if doc in second_line_docs]
             regular_second_line = [doc for doc in second_line_docs if doc not in special_second_line]
             priority_docs = first_line_docs + special_second_line
@@ -378,6 +353,7 @@ with tab3:
                 made_progress = False
                 doc_avail_choices = {}
                 
+                # 收集還有配額，且還有可選日期的醫師
                 for doc in priority_docs:
                     if rem_quota[doc]["平日"] <= 0 and rem_quota[doc]["假日"] <= 0:
                         continue # 配額已滿，跳過
@@ -415,31 +391,30 @@ with tab3:
                     assigned_counts[target_doc][day_type] += 1
                     made_progress = True
 
-            # 【階段二】剩餘空白日期，分配給一般二線醫師 (週間與假日獨立演算)
-            # 規則：分平日與假日進行獨立均分演算，且必須有填寫意願
-            empty_days = [d for d, doc in schedule.items() if doc is None]
-            
-            for d in empty_days:
-                day_type = days_info[d]["類型"] # 自動識別 "平日" 或 "假日"
-                zh_weekday = days_info[d]["中文星期"]
-                full_day_str = days_info[d]["完整"]
-                
-                available_second = []
-                for doc in regular_second_line:
-                    # 核心防護：沒選就不排
-                    if doc in all_prefs and full_day_str in all_prefs[doc]:
-                        rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
-                        if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
-                            continue
-                        available_second.append(doc)
-                
-                # 週間與假日獨立均分：依照 day_type 尋找目前在該類型排班數最少的二線醫師
-                if available_second:
-                    min_shifts = min([assigned_counts[doc][day_type] for doc in available_second])
-                    candidates = [doc for doc in available_second if assigned_counts[doc][day_type] == min_shifts]
-                    chosen = random.choice(candidates)
-                    schedule[d] = chosen
-                    assigned_counts[chosen][day_type] += 1
+            # 【階段二】剩餘空白日期，分配給一般二線醫師
+            # 規則：二線醫師也必須在該日期有填寫意願，才會被排入
+            for d in schedule.keys():
+                if schedule[d] is None:
+                    day_type = days_info[d]["類型"]
+                    zh_weekday = days_info[d]["中文星期"]
+                    full_day_str = days_info[d]["完整"]
+                    
+                    available_second = []
+                    for doc in regular_second_line:
+                        # 核心防護：沒選就不排
+                        if doc in all_prefs and full_day_str in all_prefs[doc]:
+                            rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
+                            if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
+                                continue
+                            available_second.append(doc)
+                    
+                    # 均分邏輯：挑選符合條件中，目前排班最少的一般二線醫師
+                    if available_second:
+                        min_shifts = min([assigned_counts[doc][day_type] for doc in available_second])
+                        candidates = [doc for doc in available_second if assigned_counts[doc][day_type] == min_shifts]
+                        chosen = random.choice(candidates)
+                        schedule[d] = chosen
+                        assigned_counts[chosen][day_type] += 1
 
             # 整理輸出格式
             final_schedule_list = []
