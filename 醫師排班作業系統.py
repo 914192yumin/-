@@ -7,13 +7,6 @@ import io
 import os
 import json
 import time
-from huggingface_hub import HfApi
-
-# ==========================================
-# ⚠️ 雲端永久保存設定區 
-# ==========================================
-# 請確認此處已替換為你的真實 Repo ID 
-REPO_ID = "914192yumin/-" 
 
 # ==========================================
 # 網頁基礎與視覺設定 
@@ -80,7 +73,7 @@ month_key = f"{target_year}_{target_month}"
 config_key = f"config_{month_key}"
 
 # ==========================================
-# 核心機制：自動備份至 Hugging Face 雲端
+# 核心機制：基礎本機存檔 (JSON)
 # ==========================================
 PREFS_FILE = 'preferences.json'
 
@@ -97,35 +90,17 @@ is_manually_locked = month_config.get("manual_lock", False)
 
 is_open_for_submission = (today.day <= 10) and not is_manually_locked
 
-def save_preferences_to_cloud(data):
-    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
-    
-    HF_TOKEN = os.environ.get("HF_TOKEN")
-    if HF_TOKEN and "你的帳號" not in REPO_ID:
-        try:
-            api = HfApi()
-            api.upload_file(
-                path_or_fileobj=PREFS_FILE,
-                path_in_repo=PREFS_FILE,
-                repo_id=REPO_ID,
-                repo_type="space",
-                token=HF_TOKEN,
-                commit_message=f"系統自動備份 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-        except Exception as e:
-            st.toast(f"⚠️ 雲端備份發生異常，請檢查 HF_TOKEN 設定。")
-            print(f"Upload Error: {e}")
-
 def save_preferences(prefs):
     data = load_all_data()
     data[month_key] = prefs
-    save_preferences_to_cloud(data)
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
 
 def set_manual_lock(status):
     data = load_all_data()
     data[config_key] = {"manual_lock": status}
-    save_preferences_to_cloud(data)
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
 
 # ==========================================
 # 頂部 Logo 與標題
@@ -177,7 +152,7 @@ if os.path.exists(file_path):
         st.error(f"❌ 檔案讀取錯誤：{e}")
         st.stop()
 else:
-    st.error(f"⚠️ [系統管理員請注意]：後台找不到名為「{file_path}」的 Excel 檔案。請上傳至雲端空間。")
+    st.error(f"⚠️ [系統管理員請注意]：後台找不到名為「{file_path}」的 Excel 檔案。請確認檔案是否存在。")
     st.stop()
 
 # 建立字典供後續快速查詢
@@ -261,7 +236,7 @@ with tab1:
                     all_prefs[selected_doctor] = preferred_days
                     save_preferences(all_prefs)
                     st.session_state.unlock_edit = False
-                    st.success("✅ 意願已成功儲存！系統已自動鎖定並備份至雲端。")
+                    st.success("✅ 意願已成功儲存！系統已自動鎖定您的表單。")
                     time.sleep(1)
                     st.rerun()
 
@@ -289,7 +264,6 @@ with tab3:
         st.success("✅ 後台已解鎖！")
         st.markdown("---")
         
-        # --- 醫師意願清單總覽 ---
         st.subheader("📋 醫師意願清單總覽")
         prefs_summary_data = []
         for doc in priority_group:
@@ -302,7 +276,6 @@ with tab3:
         st.dataframe(df_prefs, use_container_width=True)
         st.markdown("---")
         
-        # --- 管理員手動調整意願 ---
         st.subheader("✏️ 手動調整醫師意願")
         st.write("無視前台鎖定狀態，管理員可在此直接修改醫師的約班日期。")
         admin_selected_doc = st.selectbox("選擇要調整的醫師：", ["請選擇..."] + priority_group, key="admin_doc")
@@ -319,13 +292,12 @@ with tab3:
             if st.button(f"儲存 {admin_selected_doc} 的調整", type="primary"):
                 all_prefs[admin_selected_doc] = admin_new_prefs
                 save_preferences(all_prefs)
-                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願並備份至雲端！")
+                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願！")
                 time.sleep(1)
                 st.rerun()
 
         st.markdown("---")
         
-        # --- 系統狀態與危險操作區 ---
         st.subheader("🔒 系統狀態與危險操作")
         colA, colB = st.columns(2)
         
@@ -348,8 +320,9 @@ with tab3:
                 data = load_all_data()
                 if month_key in data and len(data[month_key]) > 0:
                     data[month_key] = {}
-                    save_preferences_to_cloud(data)
-                    st.success("✅ 當月意願紀錄已全數歸零並更新至雲端！")
+                    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False)
+                    st.success("✅ 當月意願紀錄已全數歸零！")
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -357,13 +330,11 @@ with tab3:
         
         st.markdown("---")
         
-        # --- 自動排班處理 ---
         st.subheader("🗓️ 智慧排班演算法")
         
         if st.button("執行排班並產生 Excel", type="primary"):
             schedule = {date: None for date in days_info.keys()}
             
-            # 動態剩餘配額追蹤器
             rem_quota = {doc: {"平日": int(df.loc[df['醫師姓名']==doc, '平日應值班數'].values[0]),
                                "假日": int(df.loc[df['醫師姓名']==doc, '假日應值班數'].values[0])} 
                          for doc in all_doctors if doc in df['醫師姓名'].values}
@@ -392,7 +363,6 @@ with tab3:
                 made_progress = False
                 doc_avail_choices = {}
                 
-                # 收集所有還有配額的優先醫師，以及他們「目前還可以排」的意願日期
                 for doc in priority_docs:
                     if rem_quota[doc]["平日"] == 0 and rem_quota[doc]["假日"] == 0:
                         continue
@@ -409,11 +379,9 @@ with tab3:
                         doc_avail_choices[doc] = valid_dates
                 
                 if doc_avail_choices:
-                    # 排序：優先處理「剩下可選日期最少」的醫師，確保他們配額能被滿足
                     sorted_docs = sorted(doc_avail_choices.keys(), key=lambda x: len(doc_avail_choices[x]))
                     target_doc = sorted_docs[0]
                     
-                    # 找日期：在該醫師的可選日期中，找出「最少其他人競爭」的日期
                     day_contention = {}
                     for d in doc_avail_choices[target_doc]:
                         contention = sum(1 for other_doc, choices in doc_avail_choices.items() if d in choices)
@@ -421,14 +389,13 @@ with tab3:
                         
                     best_day = sorted(doc_avail_choices[target_doc], key=lambda x: day_contention[x])[0]
                     
-                    # 正式排入
                     schedule[best_day] = target_doc
                     day_type = days_info[best_day]["類型"]
                     rem_quota[target_doc][day_type] -= 1
                     assigned_counts[target_doc][day_type] += 1
                     made_progress = True
 
-            # 【階段三】強制補滿優先名單配額 (若意願不足以滿足應值班數)
+            # 【階段三】強制補滿優先名單配額
             for doc in priority_docs:
                 for day_type in ["平日", "假日"]:
                     while rem_quota[doc][day_type] > 0:
@@ -461,7 +428,7 @@ with tab3:
                         schedule[d] = chosen
                         assigned_counts[chosen][day_type] += 1
 
-            # 整理輸出格式：根據被選中醫師的「班別」，動態放入對應欄位
+            # 整理輸出格式
             final_schedule_list = []
             for d, doc in schedule.items():
                 doc1, doc2, mvpn1, mvpn2 = "", "", "", ""
