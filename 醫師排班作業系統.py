@@ -333,8 +333,10 @@ with tab3:
         st.subheader("🗓️ 智慧排班演算法")
         
         if st.button("執行排班並產生 Excel", type="primary"):
+            # 每天只有 1 個位子
             schedule = {date: None for date in days_info.keys()}
             
+            # 讀取每位醫師的應值班數限制
             rem_quota = {doc: {"平日": int(df.loc[df['醫師姓名']==doc, '平日應值班數'].values[0]),
                                "假日": int(df.loc[df['醫師姓名']==doc, '假日應值班數'].values[0])} 
                          for doc in all_doctors if doc in df['醫師姓名'].values}
@@ -382,7 +384,7 @@ with tab3:
                     assigned_counts[target_doc][day_type] += 1
                     made_progress = True
 
-            # 【階段二】剩餘空白日期，分配給一般二線醫師 (週間與假日獨立演算)
+            # 【階段二】剩餘空白日期，分配給一般二線醫師 (週間與假日獨立演算 + 平假日互斥)
             empty_days = [d for d, doc in schedule.items() if doc is None]
             
             for d in empty_days:
@@ -391,14 +393,29 @@ with tab3:
                 
                 available_second = []
                 for doc in regular_second_line:
-                    # 移除意願判斷，強制分配填滿剩下的空缺
                     rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
                     if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
                         continue
+                    
+                    # 💡 核心更新：平假日互斥邏輯
+                    # 如果當前空缺是平日，且該醫師已經有假日班，則跳過
+                    if day_type == "平日" and assigned_counts[doc]["假日"] > 0:
+                        continue
+                    # 如果當前空缺是假日，且該醫師已經有平日班，則跳過
+                    if day_type == "假日" and assigned_counts[doc]["平日"] > 0:
+                        continue
+
                     available_second.append(doc)
                 
+                # 💡 防呆機制：如果因為互斥條件導致這天完全沒人可選，則放寬條件以防系統出錯
+                if not available_second:
+                    for doc in regular_second_line:
+                        rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
+                        if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
+                            continue
+                        available_second.append(doc)
+
                 if available_second:
-                    # 針對該 day_type (平日或假日) 尋找排班最少的醫師
                     min_shifts = min([assigned_counts[doc][day_type] for doc in available_second])
                     candidates = [doc for doc in available_second if assigned_counts[doc][day_type] == min_shifts]
                     chosen = random.choice(candidates)
