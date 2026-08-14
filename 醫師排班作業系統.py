@@ -148,7 +148,7 @@ with col1:
     if os.path.exists(logo_path):
         st.image(logo_path, width=80)
 with col2:
-    st.title("醫療部病房值班排班系統")
+    st.title("醫療部病房值班約班系統")
 
 # ==========================================
 # 公告與提醒事項區塊
