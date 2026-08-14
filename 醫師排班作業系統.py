@@ -7,6 +7,8 @@ import io
 import os
 import json
 import time
+import requests
+import base64
 
 # ==========================================
 # 網頁基礎與視覺設定 
@@ -73,7 +75,7 @@ month_key = f"{target_year}_{target_month}"
 config_key = f"config_{month_key}"
 
 # ==========================================
-# 核心機制：基礎本機存檔 (JSON)
+# 核心機制：自動備份至 GitHub 雲端
 # ==========================================
 PREFS_FILE = 'preferences.json'
 
@@ -90,17 +92,52 @@ is_manually_locked = month_config.get("manual_lock", False)
 
 is_open_for_submission = (today.day <= 10) and not is_manually_locked
 
+def save_preferences_to_github(data):
+    # 1. 存到本機暫存
+    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+    
+    # 2. 備份到 GitHub 專案庫
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+    REPO_ID = "914192yumin/-"  # 妳在 GitHub 上的專案名稱
+    
+    if GITHUB_TOKEN:
+        try:
+            url = f"https://api.github.com/repos/{REPO_ID}/contents/{PREFS_FILE}"
+            headers = {
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            # 檢查檔案是否已存在以取得 sha
+            get_resp = requests.get(url, headers=headers)
+            sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
+            
+            # 準備上傳內容
+            content_bytes = json.dumps(data, ensure_ascii=False).encode('utf-8')
+            base64_content = base64.b64encode(content_bytes).decode('utf-8')
+            
+            put_data = {
+                "message": f"排班系統自動備份 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "content": base64_content,
+            }
+            if sha:
+                put_data["sha"] = sha
+                
+            requests.put(url, headers=headers, json=put_data)
+        except Exception as e:
+            st.toast(f"⚠️ 雲端備份發生異常。")
+            print(f"GitHub Upload Error: {e}")
+
 def save_preferences(prefs):
     data = load_all_data()
     data[month_key] = prefs
-    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
+    save_preferences_to_github(data)
 
 def set_manual_lock(status):
     data = load_all_data()
     data[config_key] = {"manual_lock": status}
-    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
+    save_preferences_to_github(data)
 
 # ==========================================
 # 頂部 Logo 與標題
@@ -236,7 +273,7 @@ with tab1:
                     all_prefs[selected_doctor] = preferred_days
                     save_preferences(all_prefs)
                     st.session_state.unlock_edit = False
-                    st.success("✅ 意願已成功儲存！系統已自動鎖定您的表單。")
+                    st.success("✅ 意願已成功儲存！系統已自動鎖定並備份至雲端。")
                     time.sleep(1)
                     st.rerun()
 
@@ -292,7 +329,7 @@ with tab3:
             if st.button(f"儲存 {admin_selected_doc} 的調整", type="primary"):
                 all_prefs[admin_selected_doc] = admin_new_prefs
                 save_preferences(all_prefs)
-                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願！")
+                st.success(f"✅ 已成功強制更新 {admin_selected_doc} 的意願並備份至雲端！")
                 time.sleep(1)
                 st.rerun()
 
@@ -320,9 +357,8 @@ with tab3:
                 data = load_all_data()
                 if month_key in data and len(data[month_key]) > 0:
                     data[month_key] = {}
-                    with open(PREFS_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(data, f, ensure_ascii=False)
-                    st.success("✅ 當月意願紀錄已全數歸零！")
+                    save_preferences_to_github(data)
+                    st.success("✅ 當月意願紀錄已全數歸零並更新至雲端！")
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -333,10 +369,8 @@ with tab3:
         st.subheader("🗓️ 智慧排班演算法")
         
         if st.button("執行排班並產生 Excel", type="primary"):
-            # 每天只有 1 個位子
             schedule = {date: None for date in days_info.keys()}
             
-            # 讀取每位醫師的應值班數限制
             rem_quota = {doc: {"平日": int(df.loc[df['醫師姓名']==doc, '平日應值班數'].values[0]),
                                "假日": int(df.loc[df['醫師姓名']==doc, '假日應值班數'].values[0])} 
                          for doc in all_doctors if doc in df['醫師姓名'].values}
@@ -397,17 +431,13 @@ with tab3:
                     if doc == "李友夫" and zh_weekday in ["星期二", "星期三", "星期四", "星期五"] and "排除星期二到星期五" in rules:
                         continue
                     
-                    # 💡 核心更新：平假日互斥邏輯
-                    # 如果當前空缺是平日，且該醫師已經有假日班，則跳過
                     if day_type == "平日" and assigned_counts[doc]["假日"] > 0:
                         continue
-                    # 如果當前空缺是假日，且該醫師已經有平日班，則跳過
                     if day_type == "假日" and assigned_counts[doc]["平日"] > 0:
                         continue
 
                     available_second.append(doc)
                 
-                # 💡 防呆機制：如果因為互斥條件導致這天完全沒人可選，則放寬條件以防系統出錯
                 if not available_second:
                     for doc in regular_second_line:
                         rules = str(df.loc[df['醫師姓名']==doc, '排班規則'].values[0])
