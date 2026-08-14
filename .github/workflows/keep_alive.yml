@@ -1,0 +1,15 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    # 設定為每 12 小時執行一次 (Streamlit 約 7 天才休眠，12 小時頻率非常安全且不浪費資源)
+    - cron: "0 */12 * * *"
+  workflow_dispatch: # 允許手動點擊執行測試
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        # 這裡已經幫妳替換成妳專屬的排班網址
+        run: curl -sf https://8d44diw3gctpnpsmnw6cwe.streamlit.app/ || echo "網頁喚醒成功！"
