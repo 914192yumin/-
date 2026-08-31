@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import calendar
 import io
 import os
@@ -59,9 +59,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 系統時間與動態月份計算
+# 系統時間與動態月份計算 (🌟 台灣時區修正版)
 # ==========================================
-today = datetime.today()
+# 強制設定為台灣時間 (UTC+8)，避免伺服器時間落差
+tw_timezone = timezone(timedelta(hours=8))
+today = datetime.now(tw_timezone)
 
 if today.month == 12:
     target_year = today.year + 1
@@ -99,7 +101,7 @@ def save_preferences_to_github(data):
     
     # 2. 備份到 GitHub 專案庫
     GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-    REPO_ID = "914192yumin/-"  # 妳在 GitHub 上的專案名稱
+    REPO_ID = "914192yumin/-"  
     
     if GITHUB_TOKEN:
         try:
@@ -118,7 +120,7 @@ def save_preferences_to_github(data):
             base64_content = base64.b64encode(content_bytes).decode('utf-8')
             
             put_data = {
-                "message": f"排班系統自動備份 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "message": f"排班系統自動備份 {today.strftime('%Y-%m-%d %H:%M:%S')}",
                 "content": base64_content,
             }
             if sha:
